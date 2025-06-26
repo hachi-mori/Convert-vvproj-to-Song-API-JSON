@@ -1,0 +1,106 @@
+﻿<!-- index.html ─ VOICEVOXプロジェクトファイル（.vvproj）→ 歌唱API用.json -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>VOICEVOXプロジェクトファイル（.vvproj）→ 歌唱API用.json</title>
+<style>
+:root{
+  --p:#3f51b5;--p-l:#5c6bc0;--bg:#f7f8fc;--card:#fff;--bd:#d0d4e0;
+  --r:10px;font-family:"Segoe UI",sans-serif
+}
+body{margin:0;background:var(--bg);display:flex;justify-content:center;align-items:start;min-height:100vh}
+.card{margin-top:8vh;background:var(--card);border:1px solid var(--bd);border-radius:var(--r);max-width:460px;width:90%;padding:2rem;box-shadow:0 4px 14px rgba(0,0,0,.08)}
+h1{margin:0 0 1.3rem;font-size:1.35rem;text-align:center;color:var(--p)}
+input[type=file]{width:100%;margin-bottom:1.2rem}
+button{width:100%;padding:.75rem;font-size:1rem;background:var(--p);border:none;border-radius:calc(var(--r)/1.4);color:#fff;cursor:pointer;transition:.2s}
+button:disabled{background:#b7b9c7;cursor:not-allowed}
+button:not(:disabled):hover{background:var(--p-l)}
+.log{margin-top:1rem;font-size:.9rem;background:#f3f4fa;border:1px dashed var(--bd);border-radius:calc(var(--r)/1.6);padding:.9rem;white-space:pre-wrap}
+a.dl{display:inline-block;margin-top:.8rem;color:var(--p);text-decoration:none;font-weight:600}
+</style>
+</head>
+<body>
+<main class="card">
+  <h1>VOICEVOXプロジェクトファイル（.vvproj）<br>→ 歌唱API用.json</h1>
+
+  <input id="fileInput" type="file" accept=".vvproj,application/json">
+  <button id="convertBtn" disabled>変換してダウンロード</button>
+
+  <div id="log" class="log"></div>
+</main>
+
+<script>
+const FPS=93.75;
+const REST={key:null,lyric:"",notelen:"R"};
+const midiName=m=>["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"][m%12]+(Math.floor(m/12)-1);
+
+function framesFromTicks(ticks,bpm,tpqn,carry){
+  const beats=ticks/tpqn;
+  const frames=(beats*(60/bpm))*FPS+carry.val;
+  const rounded=Math.max(1,Math.round(frames));
+  carry.val=frames-rounded;
+  return rounded;
+}
+
+function convert(json){
+  const song=json.song;
+  if(!song)throw"song オブジェクトが無い";
+  const tpqn=song.tpqn??480;
+  const bpm=(song.tempos?.[0]?.bpm)||120;
+  const track=Object.values(song.tracks??{})[0];
+  if(!track||!Array.isArray(track.notes))throw"tracks.notes 無し";
+
+  track.notes.sort((a,b)=>a.position-b.position);
+
+  const notes=[{frame_length:2,...REST}],carry={val:0};
+  let prev=0;
+  for(const n of track.notes){
+    const gap=n.position-prev;
+    if(gap>0)notes.push({frame_length:framesFromTicks(gap,bpm,tpqn,carry),...REST});
+    notes.push({
+      frame_length:framesFromTicks(n.duration,bpm,tpqn,carry),
+      key:n.noteNumber,
+      lyric:n.lyric,
+      notelen:midiName(n.noteNumber)
+    });
+    prev=n.position+n.duration;
+  }
+  notes.push({frame_length:2,...REST});
+  return{notes};
+}
+
+const fileIn=document.getElementById("fileInput");
+const btn=document.getElementById("convertBtn");
+const log=document.getElementById("log");
+let fileBlob=null;
+
+fileIn.onchange=e=>{
+  fileBlob=e.target.files[0]||null;
+  log.textContent=fileBlob?`選択: ${fileBlob.name}`:"";
+  btn.disabled=!fileBlob;
+};
+
+btn.onclick=()=>{
+  if(!fileBlob)return;
+  log.textContent="変換中…";
+  fileBlob.text().then(t=>{
+    let out;
+    try{out=convert(JSON.parse(t));}
+    catch(err){log.textContent="エラー: "+err;return;}
+    const blob=new Blob([JSON.stringify(out,null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const base = fileBlob.name.replace(/\.vvproj$/i, "");
+    const a=document.createElement("a");
+    a.href=url;
+    a.download=base+".json";
+    a.textContent="⬇ 歌唱API用.json をダウンロード";
+    a.className="dl";
+    log.innerHTML="変換完了！";
+    log.appendChild(a);
+  });
+};
+</script>
+</body>
+</html>
